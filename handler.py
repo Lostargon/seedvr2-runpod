@@ -84,9 +84,11 @@ def _build_args(model: str, resolution: int, seed: int, batch_size: int) -> argp
     a.input_noise_scale = 0.0
     a.latent_noise_scale = 0.0
     a.cuda_device = "0"
-    a.dit_offload_device = "auto"
-    a.vae_offload_device = "auto"
-    a.tensor_offload_device = "auto"
+    # CLI defaults: dit/vae are "none", tensor is "cpu". Caching requires
+    # offload set to a real device, so use "cpu" for dit/vae too.
+    a.dit_offload_device = "cpu"
+    a.vae_offload_device = "cpu"
+    a.tensor_offload_device = "cpu"
     a.blocks_to_swap = 0
     a.swap_io_components = False
     a.vae_encode_tiled = False
