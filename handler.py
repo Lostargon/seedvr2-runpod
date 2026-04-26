@@ -48,16 +48,41 @@ ALLOWED_MODELS = {
 
 
 def _ensure_loaded():
-    """Lazy-import wrapper internals + create per-model runner_cache."""
+    """Lazy-import wrapper internals + create per-model runner_cache.
+
+    Import order matters: bring in src.utils.* (which transitively imports
+    diffusers + torch via attn_video_vae) BEFORE inference_cli. The latter
+    eagerly probes CUDA memory at import time, and doing that before the
+    diffusers init has registered its CUDA allocator config triggers a
+    "CUDAAllocatorConfig backend mismatch" assert and segfault.
+    """
     if "process_frames_core" in _loaded:
         return
-    import torch  # noqa: F401  (warm CUDA)
-    from inference_cli import _process_frames_core
+    # 1) Warm up diffusers + torch via the lighter-weight utility modules.
+    from src.utils.downloads import download_weight
+    from src.utils.model_registry import DEFAULT_VAE
     from src.utils.debug import Debug
+    # 2) Now safe to import inference_cli (does CUDA memory probes at load).
+    from inference_cli import _process_frames_core
     _loaded["process_frames_core"] = _process_frames_core
     _loaded["debug"] = Debug(enabled=False)
     _loaded["caches"] = {}  # one runner_cache per dit_model id
+    _loaded["download_weight"] = download_weight
+    _loaded["DEFAULT_VAE"] = DEFAULT_VAE
+    _loaded["downloaded"] = set()
     log.info("wrapper loaded; ready for inference")
+
+
+def _ensure_weights(model: str):
+    """Download VAE + DiT model to MODEL_DIR if not already present."""
+    if model in _loaded["downloaded"]:
+        return
+    download_weight = _loaded["download_weight"]
+    DEFAULT_VAE = _loaded["DEFAULT_VAE"]
+    log.info("downloading weights: %s + %s", DEFAULT_VAE, model)
+    download_weight(DEFAULT_VAE, MODEL_DIR)
+    download_weight(model, MODEL_DIR)
+    _loaded["downloaded"].add(model)
 
 
 def _build_args(model: str, resolution: int, seed: int, batch_size: int) -> argparse.Namespace:
@@ -203,9 +228,16 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
         log.exception("wrapper import failed")
         return {"error": f"wrapper import failed: {e}"}
 
+    try:
+        _ensure_weights(model)
+    except Exception as e:
+        log.exception("weight download failed")
+        return {"error": f"weight download failed: {e}"}
+
     process_frames_core = _loaded["process_frames_core"]
     debug = _loaded["debug"]
     cache = _loaded["caches"].setdefault(model, {})
+    was_warm = bool(cache)
 
     # PIL -> torch tensor in [0,1], shape (T=1, H, W, C)
     import torch
@@ -243,9 +275,17 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
             "load_s": round(t_inf - t_load, 3),
             "inference_s": round(t_done - t_inf, 3),
         },
-        "warm": "warm" if cache else "cold",
+        "warm": "warm" if was_warm else "cold",
     }
 
 
 if __name__ == "__main__":
+    # Eager-import wrapper now so PyTorch/CUDA init happens once at worker
+    # startup rather than mid-request. Avoids a "CUDAAllocatorConfig" ABI
+    # assert that fires when the wrapper's import path runs after a fresh
+    # torch import in the same process.
+    try:
+        _ensure_loaded()
+    except Exception:
+        log.exception("startup _ensure_loaded failed; will retry per-request")
     runpod.serverless.start({"handler": handler})
