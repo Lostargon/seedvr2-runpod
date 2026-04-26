@@ -127,7 +127,10 @@ def _run_cli(in_path: Path, out_path: Path, *, resolution: int, model: str,
     if proc.returncode != 0:
         log.error("CLI failed (rc=%d):\nSTDOUT:\n%s\nSTDERR:\n%s",
                   proc.returncode, proc.stdout[-4000:], proc.stderr[-4000:])
-        raise RuntimeError(f"inference_cli failed: {proc.stderr.splitlines()[-1] if proc.stderr else 'no output'}")
+        # Surface the last 1500 chars of both streams so RunPod /status shows
+        # something useful instead of just one cryptic line.
+        tail = (proc.stderr or proc.stdout or "no output")[-1500:]
+        raise RuntimeError(f"inference_cli rc={proc.returncode}: {tail}")
 
 
 def handler(event: Dict[str, Any]) -> Dict[str, Any]:

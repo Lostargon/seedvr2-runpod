@@ -18,6 +18,14 @@ RUN git clone --depth=1 https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.gi
 COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
+# flash-attn: best-effort. The CLI falls back to PyTorch SDPA if it's broken
+# (cuda/torch ABI mismatch) but it crashes hard if the module is completely
+# absent. So we install at minimum the Python stub. Pre-built wheels exist on
+# PyPI for cuda12+torch2.4+py3.11.
+RUN pip install --no-build-isolation flash-attn==2.6.3 || \
+    pip install flash-attn==2.6.3 || \
+    pip install flash-attn || true
+
 COPY handler.py /app/handler.py
 
 CMD ["python", "-u", "handler.py"]
