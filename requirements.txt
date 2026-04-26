@@ -1,5 +1,9 @@
 runpod>=1.7.0
 huggingface_hub>=0.24.0
+# Pin torch to match base image (2.4.0). Unpinned lets pip pull 2.4.1 which
+# breaks the flash_attn 2.6.3 ABI.
+torch==2.4.0
+torchvision==0.19.0
 # Wrapper deps; pin diffusers — 0.33+ uses torch APIs not in our 2.4.0.
 safetensors
 numpy<2.0
