@@ -29,13 +29,15 @@ def main() -> None:
         local_dir=str(TARGET),
         local_dir_use_symlinks=False,
         token=os.environ.get("HF_TOKEN") or os.environ.get("HF"),
+        # Repo is ~67 GB total because it contains a 33 GB *_sharp.pth alt
+        # checkpoint we do NOT need for standard inference. Skip it.
         allow_patterns=[
-            "*.pth",
-            "*.pt",
-            "*.safetensors",
+            "seedvr2_ema_7b.pth",
+            "ema_vae.pth",
             "*.json",
             "*.yaml",
             "*.txt",
+            "README.md",
         ],
     )
 
